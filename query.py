@@ -10,7 +10,7 @@ api_key = os.getenv('api_key')
 url = f'https://mainnet.infura.io/v3/{api_key}'
 
 # Load the ABI from the JSON file
-with open('pool_abi.json') as f:
+with open('abis/pool_abi.json') as f:
     pool_abi = json.load(f)
 
 # Create a Web3 instance
@@ -21,6 +21,10 @@ latest_block = w3.eth.block_number
 
 # Define the Uniswap V3 pool contract address for WBTC/ETH
 pool_address = w3.to_checksum_address("0xCBCdF9626bC03E24f779434178A73a0B4bad62eD")  # Use toChecksumAddress for proper formatting
+
+#Need these to scale. Can search this up online. Contract for wbtc is: 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599
+wbtc_decimals = 8
+eth_decimals = 18
 
 def get_swap_data(start_block, end_block):
     # Define the Swap event signature (keccak hash)
@@ -43,11 +47,10 @@ def get_swap_data(start_block, end_block):
     # Query the logs
     log_response = requests.post(url, data=json.dumps(log_payload), headers={'content-type': 'application/json'}).json()
 
-
-    transaction_data_list = [] 
-    # Check for errors and parse the logs
-    if 'result' in log_response:
-        # Create a contract instance
+    swap_data_list = [] 
+    
+    if 'result' in log_response and log_response['result']:
+        
         pool_contract = w3.eth.contract(address=pool_address, abi=pool_abi)
 
         # Process and decode each log entry
@@ -57,38 +60,38 @@ def get_swap_data(start_block, end_block):
             # Decode log entry
             decoded_event = pool_contract.events.Swap().process_log(log)
 
-            # Extract amount0 and amount1 from the decoded event
-            amount0 = decoded_event['args']['amount0']
-            amount1 = decoded_event['args']['amount1']
-
             # Get the full transaction data using the transaction hash
-            try:
-                transaction_data = w3.eth.get_transaction(transaction_hash)
-                
-                # Create a dictionary to hold transaction details
-                transaction_details = {
-                    "transaction_hash": transaction_hash,
-                    "from": transaction_data['from'],
-                    "to": transaction_data['to'],
-                    "gas": transaction_data['gas'],
-                    "gasPrice": transaction_data['gasPrice'],
-                    "value": transaction_data['value'],
-                    "block": transaction_data['blockNumber'],
-                    "amount0": amount0,  # Token 0 amount (input or output)
-                    "amount1": amount1   # Token 1 amount (input or output)
-                }
+            transaction_data = w3.eth.get_transaction(transaction_hash)
+            
+            # Create a dictionary to hold transaction details
+            transaction_details = {
+                'transaction_hash': transaction_hash,
+                'sender': decoded_event['args']['sender'],
+                'recipient': decoded_event['args']['recipient'],
+                'gas': transaction_data['gas'],
+                'gasPrice': transaction_data['gasPrice'],
+                'value': transaction_data['value'],
+                'WBTCTokens': decoded_event['args']['amount0'],
+                'ETHTokens': decoded_event['args']['amount1'],
+                'WBTCTokensAdjusted': decoded_event['args']['amount0']/(10 ** wbtc_decimals),
+                'ETHTokensAdjusted': decoded_event['args']['amount1']/(10 ** eth_decimals),
+                'block': transaction_data['blockNumber'],
+            }
 
-                # Append the transaction details to the list
-                transaction_data_list.append(transaction_details)
-                
-            except w3.exceptions.TransactionNotFound:
-                print(f"Transaction {transaction_hash} not found.")
+            # Append the transaction details to the list
+            swap_data_list.append(transaction_details)
+            
     else:
         print("Error retrieving logs:", log_response)
+    
+    with open('outputFiles/swap_data.txt', 'w') as f:
+        for entry in swap_data_list:
+            json.dump(entry, f)
+            f.write('\n')
 
-    return transaction_data_list
+    return swap_data_list
 
-def get_liquidity_data(start_block, end_block):
+def get_provider_data(start_block, end_block):
     # Define the Mint event signature (keccak hash)
     mint_event_signature = "Mint(address,address,int24,int24,uint128,uint256,uint256)"
     mint_event_signature_hash = "0x" + w3.keccak(text=mint_event_signature).hex()
@@ -109,7 +112,7 @@ def get_liquidity_data(start_block, end_block):
     # Query the logs
     log_response = requests.post(url, data=json.dumps(log_payload), headers={'content-type': 'application/json'}).json()
 
-    liquidity_data = []
+    provider_data = []
     if 'result' in log_response and log_response['result']:
         # Create a contract instance
         pool_contract = w3.eth.contract(address=pool_address, abi=pool_abi)
@@ -119,36 +122,111 @@ def get_liquidity_data(start_block, end_block):
             transaction_hash = log['transactionHash']
             
             # Decode log entry
-            try:
-                decoded_event = pool_contract.events.Mint().process_log(log)
+            decoded_event = pool_contract.events.Mint().process_log(log)
 
-                # Get the full transaction data
-                transaction_data = w3.eth.get_transaction(transaction_hash)
-                liquidity_info = {
-                    'transaction_hash': transaction_hash,
-                    'provider': decoded_event['args']['sender'],  # Wallet of the provider
-                    'amount0': decoded_event['args']['amount0'],  # Amount of token0 provided
-                    'amount1': decoded_event['args']['amount1'],  # Amount of token1 provided
-                    'block_number': transaction_data.blockNumber,
-                    # Access the correct keys for the range
-                    'range': f"{decoded_event['args']['tickLower']} - {decoded_event['args']['tickUpper']}"  # Range provided
-                }
-                liquidity_data.append(liquidity_info)
+            # Get the full transaction data
+            transaction_data = w3.eth.get_transaction(transaction_hash)
+            provider_info = {
+                'transaction_hash': transaction_hash,
+                'provider': decoded_event['args']['sender'],
+                'gas': transaction_data['gas'],
+                'gasPrice': transaction_data['gasPrice'],
+                'amount': decoded_event['args']['amount'],
+                'WBTCTokens': decoded_event['args']['amount0'],
+                'ETHTokens': decoded_event['args']['amount1'],
+                'WBTCTokensAdjusted': decoded_event['args']['amount0']/(10 ** wbtc_decimals),
+                'ETHTokensAdjusted': decoded_event['args']['amount1']/(10 ** eth_decimals),
+                'block': transaction_data.blockNumber,
+                'lowerTick': decoded_event['args']['tickLower'],
+                'upperTick': decoded_event['args']['tickUpper']
+            }
+            provider_data.append(provider_info)
 
-            except w3.exceptions.MismatchedABI as e:
-                print(f"Mismatched ABI for transaction {transaction_hash}: {e}")
-            except w3.exceptions.TransactionNotFound:
-                print(f"Transaction {transaction_hash} not found.")
     else:
         print("No Mint events found in the specified block range.")
 
+    with open('outputFiles/provider_data.txt', 'w') as f:
+        for entry in provider_data:
+            json.dump(entry, f)
+            f.write('\n')
+
+    return provider_data
+
+def get_burn_data(start_block, end_block):
+
+    burn_event_signature = "Burn(address,int24,int24,uint128,uint256,uint256)"
+    burn_event_signature_hash = "0x" + w3.keccak(text=burn_event_signature).hex()
+    
+    log_payload = {
+        "jsonrpc": "2.0",
+        "method": "eth_getLogs",
+        "params": [{
+            "fromBlock": hex(start_block),
+            "toBlock": hex(end_block),
+            "address": pool_address,
+            "topics": [burn_event_signature_hash]
+        }],
+        "id": 1
+    }
+    log_response = requests.post(url, data=json.dumps(log_payload), headers={'content-type': 'application/json'}).json()
+    burn_data = []
+    if 'result' in log_response and log_response['result']:
+        # Create a contract instance
+        pool_contract = w3.eth.contract(address=pool_address, abi=pool_abi)
+
+        # Process and decode each log entry
+        for log in log_response['result']:
+            transaction_hash = log['transactionHash']
+
+            decoded_event = pool_contract.events.Burn().process_log(log)
+
+            transaction_data = w3.eth.get_transaction(transaction_hash)
+            
+            burn_info = {
+                'transaction_hash': transaction_hash,
+                'owner': decoded_event['args']['owner'],  # Wallet of the provider
+                'gas': transaction_data['gas'],
+                'gasPrice': transaction_data['gasPrice'],
+                'amount': decoded_event['args']['amount'],
+                'WBTCTokens': -decoded_event['args']['amount0'],
+                'ETHTokens': -decoded_event['args']['amount1'],
+                'WBTCTokensAdjusted': -decoded_event['args']['amount0']/(10 ** wbtc_decimals),
+                'ETHTokensAdjusted': -decoded_event['args']['amount1']/(10 ** eth_decimals),
+                'block': transaction_data.blockNumber,
+                'lowerTick': decoded_event['args']['tickLower'],
+                'upperTick': decoded_event['args']['tickUpper']
+            }
+            burn_data.append(burn_info)
+
+    else:
+        print("No Burn events found in the specified block range.")
+
+    with open('outputFiles/burn_data.txt', 'w') as f:
+        for entry in burn_data:
+            json.dump(entry, f)
+            f.write('\n')
+
+    return burn_data
+
+def get_liquidity_provider_data(start_block, end_block):
+    provider_data = get_provider_data(start_block, end_block)
+    burn_data = get_burn_data(start_block, end_block)
+    liquidity_data = provider_data + burn_data
+    liquidity_data.sort(key=lambda x: x['block'])
+    with open('outputFiles/liquidity_data.txt', 'w') as f:
+        for entry in liquidity_data:
+            json.dump(entry, f)
+            f.write('\n')
     return liquidity_data
 
+#Can use to reduce redundancy. Not currently used.
+def process_transaction(log, pool_contract, event_name):
+    decoded_event = pool_contract.events[event_name]().process_log(log)
+    transaction_hash = log['transactionHash']
+    transaction_data = w3.eth.get_transaction(transaction_hash)
+    return decoded_event, transaction_data
 
 swap_data = get_swap_data(latest_block-1000, latest_block)
-liquidity_data = get_liquidity_data(latest_block-1000, latest_block)
-
-print("This is the swap data from the last 1000 blocks")
-print(swap_data)
-print("This is the liquidity data from the last 1000 blocks")
-print(liquidity_data)
+provider_data = get_provider_data(latest_block-10000, latest_block)
+burn_data = get_burn_data(latest_block-10000, latest_block)
+liquidity_data = get_liquidity_provider_data(latest_block-10000, latest_block)

@@ -3,6 +3,9 @@ import json
 import os
 from web3 import Web3 # type: ignore
 from dotenv import load_dotenv # type: ignore
+from datetime import datetime
+import pytz # type: ignore
+import pandas as pd # type: ignore
 
 # Load environment variables
 load_dotenv()
@@ -25,6 +28,9 @@ pool_address = w3.to_checksum_address("0xCBCdF9626bC03E24f779434178A73a0B4bad62e
 #Need these to scale. Can search this up online. Contract for wbtc is: 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599
 wbtc_decimals = 8
 eth_decimals = 18
+gas_decimals = 18
+value_decimals = 18
+
 
 def get_swap_data(start_block, end_block):
     # Define the Swap event signature (keccak hash)
@@ -70,12 +76,14 @@ def get_swap_data(start_block, end_block):
                 'recipient': decoded_event['args']['recipient'],
                 'gas': transaction_data['gas'],
                 'gasPrice': transaction_data['gasPrice'],
-                'value': transaction_data['value'],
+                'gasPriceAdjusted': transaction_data['gasPrice'] / (10 ** gas_decimals),
+                'value': transaction_data['value'] / (10 ** value_decimals),
                 'WBTCTokens': decoded_event['args']['amount0'],
                 'ETHTokens': decoded_event['args']['amount1'],
                 'WBTCTokensAdjusted': decoded_event['args']['amount0']/(10 ** wbtc_decimals),
                 'ETHTokensAdjusted': decoded_event['args']['amount1']/(10 ** eth_decimals),
                 'block': transaction_data['blockNumber'],
+                'timestamp': get_block_timestamp(transaction_data['blockNumber']),
             }
 
             # Append the transaction details to the list
@@ -84,10 +92,6 @@ def get_swap_data(start_block, end_block):
     else:
         print("Error retrieving logs:", log_response)
     
-    with open('outputFiles/swap_data.txt', 'w') as f:
-        for entry in swap_data_list:
-            json.dump(entry, f)
-            f.write('\n')
 
     return swap_data_list
 
@@ -131,12 +135,14 @@ def get_provider_data(start_block, end_block):
                 'provider': decoded_event['args']['sender'],
                 'gas': transaction_data['gas'],
                 'gasPrice': transaction_data['gasPrice'],
+                'gasPriceAdjusted': transaction_data['gasPrice'] / (10 ** gas_decimals),
                 'amount': decoded_event['args']['amount'],
                 'WBTCTokens': decoded_event['args']['amount0'],
                 'ETHTokens': decoded_event['args']['amount1'],
                 'WBTCTokensAdjusted': decoded_event['args']['amount0']/(10 ** wbtc_decimals),
                 'ETHTokensAdjusted': decoded_event['args']['amount1']/(10 ** eth_decimals),
                 'block': transaction_data.blockNumber,
+                'timestamp': get_block_timestamp(transaction_data['blockNumber']),
                 'lowerTick': decoded_event['args']['tickLower'],
                 'upperTick': decoded_event['args']['tickUpper']
             }
@@ -145,10 +151,6 @@ def get_provider_data(start_block, end_block):
     else:
         print("No Mint events found in the specified block range.")
 
-    with open('outputFiles/provider_data.txt', 'w') as f:
-        for entry in provider_data:
-            json.dump(entry, f)
-            f.write('\n')
 
     return provider_data
 
@@ -184,15 +186,17 @@ def get_burn_data(start_block, end_block):
             
             burn_info = {
                 'transaction_hash': transaction_hash,
-                'owner': decoded_event['args']['owner'],  # Wallet of the provider
+                'provider': decoded_event['args']['owner'], #references owner
                 'gas': transaction_data['gas'],
                 'gasPrice': transaction_data['gasPrice'],
+                'gasPriceAdjusted': transaction_data['gasPrice'] / (10 ** gas_decimals),
                 'amount': decoded_event['args']['amount'],
                 'WBTCTokens': -decoded_event['args']['amount0'],
                 'ETHTokens': -decoded_event['args']['amount1'],
                 'WBTCTokensAdjusted': -decoded_event['args']['amount0']/(10 ** wbtc_decimals),
                 'ETHTokensAdjusted': -decoded_event['args']['amount1']/(10 ** eth_decimals),
                 'block': transaction_data.blockNumber,
+                'timestamp': get_block_timestamp(transaction_data['blockNumber']),
                 'lowerTick': decoded_event['args']['tickLower'],
                 'upperTick': decoded_event['args']['tickUpper']
             }
@@ -201,11 +205,6 @@ def get_burn_data(start_block, end_block):
     else:
         print("No Burn events found in the specified block range.")
 
-    with open('outputFiles/burn_data.txt', 'w') as f:
-        for entry in burn_data:
-            json.dump(entry, f)
-            f.write('\n')
-
     return burn_data
 
 def get_liquidity_provider_data(start_block, end_block):
@@ -213,10 +212,7 @@ def get_liquidity_provider_data(start_block, end_block):
     burn_data = get_burn_data(start_block, end_block)
     liquidity_data = provider_data + burn_data
     liquidity_data.sort(key=lambda x: x['block'])
-    with open('outputFiles/liquidity_data.txt', 'w') as f:
-        for entry in liquidity_data:
-            json.dump(entry, f)
-            f.write('\n')
+
     return liquidity_data
 
 #Can use to reduce redundancy. Not currently used.
@@ -226,7 +222,45 @@ def process_transaction(log, pool_contract, event_name):
     transaction_data = w3.eth.get_transaction(transaction_hash)
     return decoded_event, transaction_data
 
-swap_data = get_swap_data(latest_block-1000, latest_block)
-provider_data = get_provider_data(latest_block-10000, latest_block)
-burn_data = get_burn_data(latest_block-10000, latest_block)
-liquidity_data = get_liquidity_provider_data(latest_block-10000, latest_block)
+def get_block_timestamp(block_number):
+    block = w3.eth.get_block(block_number)
+    unix_timestamp = block['timestamp']
+    dt_object = datetime.fromtimestamp(unix_timestamp, pytz.UTC)
+    return dt_object
+
+def write_swap_data_csv(swap_data, filename="swap_data.csv"):
+    df = pd.DataFrame(swap_data)
+    filepath = os.path.join("outputFiles", filename)
+    df.to_csv(filepath, index=False)
+
+def write_provider_data_csv(provider_data, filename="provider_data.csv"):
+    df = pd.DataFrame(provider_data)
+    filepath = os.path.join("outputFiles", filename)
+    df.to_csv(filepath, index=False)
+
+def write_burn_data_csv(burn_data, filename="burn_data.csv"):
+    df = pd.DataFrame(burn_data)
+    filepath = os.path.join("outputFiles", filename)
+    df.to_csv(filepath, index=False)
+
+def write_liquidity_data_csv(liquidity_data, filename="liquidity_data.csv"):
+    df = pd.DataFrame(liquidity_data)
+    filepath = os.path.join("outputFiles", filename)
+    df.to_csv(filepath, index=False)
+
+#47000 is an approximate upper bound on a week's worth of ethereum blocks. Typical block takes about 13 seconds to be mined.
+#Need to break it up in chunks of around 5000 blocks though otherwise hit some sort of limits
+swap_data = []
+provider_data = []
+burn_data = []
+liquidity_data = []
+for i in range(latest_block-47000, latest_block, 1250):
+    swap_data += get_swap_data(i+1, i+1250)
+    provider_data += get_provider_data(i+1, i+1250)
+    burn_data += get_burn_data(i+1, i+1250)
+    liquidity_data += get_liquidity_provider_data(i+1, i+1250)
+
+write_swap_data_csv(swap_data)
+write_provider_data_csv(provider_data)
+write_burn_data_csv(burn_data)
+write_liquidity_data_csv(liquidity_data)

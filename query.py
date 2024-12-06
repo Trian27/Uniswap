@@ -6,11 +6,12 @@ from dotenv import load_dotenv # type: ignore
 from datetime import datetime
 import pytz # type: ignore
 import pandas as pd # type: ignore
+import csv
 
 # Load environment variables
 load_dotenv()
-api_key = os.getenv('api_key')
-url = f'https://mainnet.infura.io/v3/{api_key}'
+infura_api_key = os.getenv('infura_api_key')
+url = f'https://mainnet.infura.io/v3/{infura_api_key}'
 
 # Load the ABI from the JSON file
 with open('abis/pool_abi.json') as f:
@@ -30,6 +31,71 @@ wbtc_decimals = 8
 eth_decimals = 18
 gas_decimals = 18
 value_decimals = 18
+
+pool_contract = w3.eth.contract(address=pool_address, abi=pool_abi)
+
+def get_pool_data():
+    # Get the current state of the pool
+    slot0 = pool_contract.functions.slot0().call()
+    sqrtPriceX96 = slot0[0]
+    current_tick = slot0[1] # will have to modify later to be a multiple of the tick spacing 
+    
+    # Get the fee tier and tick spacing from the pool contract
+    fee = pool_contract.functions.fee().call()
+    tick_spacing = pool_contract.functions.tickSpacing().call()
+    
+    # Convert fee to percentage
+    fee_percent = fee / 1e4  # Fee is returned in hundredths of a bip
+    
+    # # Calculate price from sqrtPriceX96
+    # can use later
+    # price = ((sqrtPriceX96 / (2 ** 96)) ** 2) * (10 ** (wbtc_decimals - eth_decimals))
+    
+    # Adjust current_tick to nearest valid tick index
+    adjusted_tick = current_tick - (current_tick % tick_spacing)
+    
+    # Define a reasonable tick range around the adjusted tick
+    tick_range_multiplier = 1000
+    min_tick = adjusted_tick - (tick_range_multiplier * tick_spacing)
+    max_tick = adjusted_tick + (tick_range_multiplier * tick_spacing)
+    
+    # Initialize a list to store liquidity data
+    liquidity_data = []
+    
+    # Loop through ticks in the specified range
+    for tick in range(min_tick, max_tick + tick_spacing, tick_spacing):
+        try:
+            tick_data = pool_contract.functions.ticks(tick).call()
+            liquidity_gross = int(tick_data[0])
+            liquidity_net = int(tick_data[1])
+            if liquidity_gross > 0 or liquidity_net != 0:
+                liquidity_data.append({
+                    'tickIdx': tick,
+                    'liquidityGross': liquidity_gross,
+                    'liquidityNet': liquidity_net
+                })
+        except Exception:
+            continue
+    
+    # Create DataFrame with explicit data types
+    df = pd.DataFrame(liquidity_data).astype({
+        'tickIdx': 'int64',
+        'liquidityGross': 'int64',
+        'liquidityNet': 'int64'
+    })
+    
+    if not df.empty:
+        output_dir = "./outputFiles/poolData"
+        os.makedirs(output_dir, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f'liquidity_distribution_{timestamp}.csv'
+        filepath = os.path.join(output_dir, filename)
+        
+        # Write to CSV with numeric format preserved
+        df.to_csv(filepath, 
+                  index=False,
+                  float_format='%.0f',
+                  quoting=csv.QUOTE_MINIMAL)
 
 
 def get_swap_data(start_block, end_block):
@@ -57,7 +123,6 @@ def get_swap_data(start_block, end_block):
     
     if 'result' in log_response and log_response['result']:
         
-        pool_contract = w3.eth.contract(address=pool_address, abi=pool_abi)
 
         # Process and decode each log entry
         for log in log_response['result']:
@@ -119,7 +184,6 @@ def get_provider_data(start_block, end_block):
     provider_data = []
     if 'result' in log_response and log_response['result']:
         # Create a contract instance
-        pool_contract = w3.eth.contract(address=pool_address, abi=pool_abi)
 
         # Process and decode each log entry
         for log in log_response['result']:
@@ -173,8 +237,6 @@ def get_burn_data(start_block, end_block):
     log_response = requests.post(url, data=json.dumps(log_payload), headers={'content-type': 'application/json'}).json()
     burn_data = []
     if 'result' in log_response and log_response['result']:
-        # Create a contract instance
-        pool_contract = w3.eth.contract(address=pool_address, abi=pool_abi)
 
         # Process and decode each log entry
         for log in log_response['result']:
@@ -248,19 +310,21 @@ def write_liquidity_data_csv(liquidity_data, filename="liquidity_data.csv"):
     filepath = os.path.join("outputFiles", filename)
     df.to_csv(filepath, index=False)
 
-#47000 is an approximate upper bound on a week's worth of ethereum blocks. Typical block takes about 13 seconds to be mined.
-#Need to break it up in chunks of around 5000 blocks though otherwise hit some sort of limits
-swap_data = []
-provider_data = []
-burn_data = []
-liquidity_data = []
-for i in range(latest_block-47000, latest_block, 1250):
-    swap_data += get_swap_data(i+1, i+1250)
-    provider_data += get_provider_data(i+1, i+1250)
-    burn_data += get_burn_data(i+1, i+1250)
-    liquidity_data += get_liquidity_provider_data(i+1, i+1250)
+# #47000 is an approximate upper bound on a week's worth of ethereum blocks. Typical block takes about 13 seconds to be mined.
+# #Need to break it up in chunks of around 5000 blocks though otherwise hit some sort of limits
+# swap_data = []
+# provider_data = []
+# burn_data = []
+# liquidity_data = []
+# for i in range(latest_block-47000, latest_block, 1250):
+#     swap_data += get_swap_data(i+1, i+1250)
+#     provider_data += get_provider_data(i+1, i+1250)
+#     burn_data += get_burn_data(i+1, i+1250)
+#     liquidity_data += get_liquidity_provider_data(i+1, i+1250)
 
-write_swap_data_csv(swap_data)
-write_provider_data_csv(provider_data)
-write_burn_data_csv(burn_data)
-write_liquidity_data_csv(liquidity_data)
+# write_swap_data_csv(swap_data)
+# write_provider_data_csv(provider_data)
+# write_burn_data_csv(burn_data)
+# write_liquidity_data_csv(liquidity_data)
+
+get_pool_data()

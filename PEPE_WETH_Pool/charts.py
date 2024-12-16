@@ -5,7 +5,20 @@ import os, re
 from dotenv import load_dotenv  # type: ignore
 
 load_dotenv()
-def plot_liquidity_distribution(csv_file_path):
+
+def get_max_liquidity(csv_files):
+    max_liquidity = 0
+    for _, filepath in csv_files:
+        try:
+            df = pd.read_csv(filepath)
+            max_liquidity = max(max_liquidity, df['cumulative_liquidity'].max())
+        except Exception as e:
+            print(f"Error reading {filepath}: {e}")
+            continue
+    return max_liquidity
+
+
+def plot_liquidity_distribution(csv_file_path, max_liquidity):
     
     output_charts_path = os.getenv('output_charts_path_PEPE_WETH_Pool')
 
@@ -74,8 +87,8 @@ def plot_liquidity_distribution(csv_file_path):
         time_str = "Unknown Time"
 
     # ----------------- Create Bar Chart (Fixed Range: tickIdx 200000 to 300000) -----------------
-    tick_min = -250000
-    tick_max = 100000
+    tick_min = -225000
+    tick_max = -150000
 
     # Filter data within the fixed range
     df_focus = df[(df['tickIdx'] >= tick_min) & (df['tickIdx'] <= tick_max)]
@@ -91,6 +104,7 @@ def plot_liquidity_distribution(csv_file_path):
             bar_width = 1
         
         plt.bar(df_focus['tickIdx'], df_focus['cumulative_liquidity'], width=bar_width, color='skyblue', align='center')
+        plt.ylim(top=max_liquidity)
 
         if tick_min <= current_tick <= tick_max:
             plt.axvline(x=current_tick, color='red', linestyle='--', linewidth=2, label='Current Tick')
@@ -119,6 +133,7 @@ def plot_liquidity_distribution(csv_file_path):
     # ----------------- Create Line Chart (Full Data) -----------------
     plt.figure(figsize=(14, 7))
     plt.plot(tickIdx, cumulative_liquidity, color='blue', linewidth=1, label='Cumulative Liquidity')
+    plt.ylim(bottom=0, top=max_liquidity)
 
     plt.axvline(x=current_tick, color='red', linestyle='--', linewidth=2, label='Current Tick')
     plt.text(current_tick, plt.ylim()[1]*0.95, 'Current Tick', color='red', rotation=90, va='top', ha='right')
@@ -161,6 +176,8 @@ if __name__ == "__main__":
     if not csv_files:
         print(f"No CSV files found in '{csv_dir}'.")
         exit(1)
+        
+    max_liquidity = get_max_liquidity(csv_files)
     for timestamp, filepath in csv_files:
         print(f"Processing file: {filepath}")
-        plot_liquidity_distribution(filepath)
+        plot_liquidity_distribution(filepath, max_liquidity)

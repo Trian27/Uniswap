@@ -4,6 +4,7 @@ from dotenv import load_dotenv # type: ignore
 from datetime import datetime
 import pandas as pd # type: ignore
 import matplotlib.pyplot as plt # type: ignore
+from decimal import Decimal
 
 load_dotenv()
 the_graph_api_key = os.getenv('the_graph_api_key')
@@ -23,7 +24,6 @@ def get_hourly_pool_data(pool_address):
     timestamp = int(datetime.now().timestamp())
     all_ticks = []
     pool_data = None
-    cumulative_liquidity = 0
 
     while True:
         query = """
@@ -61,11 +61,9 @@ def get_hourly_pool_data(pool_address):
                 tick_data = []
                 for tick in ticks:
                     print(tick)
-                    cumulative_liquidity += int(tick['liquidityNet'])
                     tick_data.append({
                         "tickIdx": tick['tickIdx'],
-                        "liquidityNet": tick['liquidityNet'],
-                        "cumulative_liquidity": cumulative_liquidity
+                        "liquidityNet": tick['liquidityNet']
                     })
                 all_ticks.extend(tick_data)
                 skip += batch_size
@@ -81,11 +79,9 @@ def get_hourly_pool_data(pool_address):
     df['pool_id'] = pool_data['id']
     
     df['tickIdx'] = df['tickIdx'].astype(int)
-    df['cumulative_liquidity'] = df['cumulative_liquidity'].astype(float)
-    df['liquidityNet'] = df['liquidityNet'].astype(float)
-    # Calculate cumulative liquidity
+    df['liquidityNet'] = df['liquidityNet'].apply(Decimal)
     df = df.sort_values('tickIdx')
-    
+    df['cumulative_liquidity'] = df['liquidityNet'].cumsum()
     filename = f"liquidity_data_{timestamp}.csv"
     filepath = os.path.join(OUTPUT_DIR, filename)
     df.to_csv(filepath, index=False)

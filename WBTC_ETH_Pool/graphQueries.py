@@ -4,7 +4,9 @@ from dotenv import load_dotenv # type: ignore
 from datetime import datetime
 import pandas as pd # type: ignore
 import matplotlib.pyplot as plt # type: ignore
-from decimal import Decimal
+from decimal import Decimal, getcontext
+
+getcontext().prec = 78
 # Load env with debug
 load_dotenv()
 the_graph_api_key = os.getenv('the_graph_api_key')

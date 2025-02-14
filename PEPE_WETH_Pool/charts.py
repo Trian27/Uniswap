@@ -1,8 +1,9 @@
-import pandas as pd  # type: ignore
-import matplotlib.pyplot as plt  # type: ignore
+import pandas as pd
+import matplotlib.pyplot as plt
 from datetime import datetime
 import os, re
-from dotenv import load_dotenv  # type: ignore
+from decimal import Decimal, getcontext
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -11,15 +12,14 @@ def get_max_liquidity(csv_files):
     for _, filepath in csv_files:
         try:
             df = pd.read_csv(filepath)
+            df['cumulative_liquidity'] = df['cumulative_liquidity'].apply(Decimal)
             max_liquidity = max(max_liquidity, df['cumulative_liquidity'].max())
         except Exception as e:
             print(f"Error reading {filepath}: {e}")
             continue
     return max_liquidity
 
-
 def plot_liquidity_distribution(csv_file_path, max_liquidity):
-    
     output_charts_path = os.getenv('output_charts_path_PEPE_WETH_Pool')
 
     if not output_charts_path:
@@ -50,7 +50,7 @@ def plot_liquidity_distribution(csv_file_path, max_liquidity):
     # Convert data types
     try:
         df['tickIdx'] = df['tickIdx'].astype(int)
-        df['cumulative_liquidity'] = df['cumulative_liquidity'].astype(float)
+        df['cumulative_liquidity'] = df['cumulative_liquidity'].apply(Decimal)
     except KeyError as e:
         print(f"Error: Missing expected column {e} in CSV.")
         return
@@ -86,9 +86,9 @@ def plot_liquidity_distribution(csv_file_path, max_liquidity):
         print(f"Error converting timestamp: {e}")
         time_str = "Unknown Time"
 
-    # ----------------- Create Bar Chart (Fixed Range: tickIdx 200000 to 300000) -----------------
-    tick_min = -225000
-    tick_max = -150000
+    # ----------------- Create Bar Chart (Centered around current tick, ±50,000) -----------------
+    tick_min = current_tick - 50000
+    tick_max = current_tick + 50000
 
     # Filter data within the fixed range
     df_focus = df[(df['tickIdx'] >= tick_min) & (df['tickIdx'] <= tick_max)]
@@ -104,13 +104,10 @@ def plot_liquidity_distribution(csv_file_path, max_liquidity):
             bar_width = 1
         
         plt.bar(df_focus['tickIdx'], df_focus['cumulative_liquidity'], width=bar_width, color='skyblue', align='center')
-        plt.ylim(top=max_liquidity)
+        plt.ylim(bottom=0, top=max_liquidity)
 
-        if tick_min <= current_tick <= tick_max:
-            plt.axvline(x=current_tick, color='red', linestyle='--', linewidth=2, label='Current Tick')
-            plt.text(current_tick, plt.ylim()[1]*0.95, 'Current Tick', color='red', rotation=90, va='top', ha='right')
-        else:
-            plt.axvline(x=current_tick, color='red', linestyle='--', linewidth=2, label='Current Tick')
+        plt.axvline(x=current_tick, color='red', linestyle='--', linewidth=2, label='Current Tick')
+        plt.text(current_tick, plt.ylim()[1]*0.95, 'Current Tick', color='red', rotation=90, va='top', ha='right')
 
         plt.title(f'Liquidity Distribution (Bar Chart)\nTimestamp: {time_str}\nPool ID: {pool_id}')
         plt.xlabel('Tick Index')
@@ -155,8 +152,7 @@ def plot_liquidity_distribution(csv_file_path, max_liquidity):
         plt.close()
 
 if __name__ == "__main__":
-
-    csv_dir = os.getenv('output_csv_path_PEPE_WETH_Pool')
+    csv_dir = os.getenv('output_csv_adjusted_path_PEPE_WETH_POOL')
     print(f"CSV Directory: {csv_dir}")
     pattern = re.compile(r'liquidity_data_(\d+)\.csv')
     csv_files = []

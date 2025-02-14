@@ -1,8 +1,8 @@
-import pandas as pd  # type: ignore
-import matplotlib.pyplot as plt  # type: ignore
+import pandas as pd
+import matplotlib.pyplot as plt
 from datetime import datetime
 import os, re
-from dotenv import load_dotenv  # type: ignore
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -11,32 +11,25 @@ def get_max_liquidity(csv_files):
     for _, filepath in csv_files:
         try:
             df = pd.read_csv(filepath)
-            max_liquidity = max(max_liquidity, df['cumulative_liquidity'].max())
+            max_liquidity = max(max_liquidity, df['cumulative_liquidity'].astype(float).max())
         except Exception as e:
             print(f"Error reading {filepath}: {e}")
             continue
     return max_liquidity
 
-
 def plot_liquidity_distribution(csv_file_path, max_liquidity):
-    # Load environment variables from .env file
-
-    # Get output charts path from .env
     output_charts_path = os.getenv('output_charts_path_WBTC_ETH_Pool')
 
     if not output_charts_path:
         print("Error: 'output_charts_path' not found in .env file.")
         return
 
-    # Define absolute paths for bar and line charts
     bar_charts_path = os.path.join(output_charts_path, 'barCharts')
     line_charts_path = os.path.join(output_charts_path, 'lineCharts')
 
-    # Ensure the output directories exist
     os.makedirs(bar_charts_path, exist_ok=True)
     os.makedirs(line_charts_path, exist_ok=True)
 
-    # Read and preprocess data
     try:
         df = pd.read_csv(csv_file_path)
     except FileNotFoundError:
@@ -49,7 +42,6 @@ def plot_liquidity_distribution(csv_file_path, max_liquidity):
         print(f"Error reading '{csv_file_path}': {e}")
         return
 
-    # Convert data types
     try:
         df['tickIdx'] = df['tickIdx'].astype(int)
         df['cumulative_liquidity'] = df['cumulative_liquidity'].astype(float)
@@ -60,10 +52,8 @@ def plot_liquidity_distribution(csv_file_path, max_liquidity):
         print(f"Error: Data type conversion issue - {e}.")
         return
 
-    # Sort data by tickIdx
     df = df.sort_values('tickIdx')
 
-    # Extract necessary data
     try:
         tickIdx = df['tickIdx']
         cumulative_liquidity = df['cumulative_liquidity']
@@ -80,39 +70,33 @@ def plot_liquidity_distribution(csv_file_path, max_liquidity):
         print(f"Error: Data type conversion issue - {e}.")
         return
 
-    # Convert timestamp to readable format in EST
     try:
-        dt = datetime.fromtimestamp(timestamp, tz=datetime.now().astimezone().tzinfo)  # Adjust timezone if needed
+        dt = datetime.fromtimestamp(timestamp, tz=datetime.now().astimezone().tzinfo)
         time_str = dt.strftime('%Y-%m-%d %H:%M:%S')
     except Exception as e:
         print(f"Error converting timestamp: {e}")
         time_str = "Unknown Time"
 
-    # ----------------- Create Bar Chart (Fixed Range) -----------------
-    tick_min = 250000
-    tick_max = 270000
+    # ----------------- Create Bar Chart (Centered around current tick, ±50,000) -----------------
+    tick_min = current_tick - 15000
+    tick_max = current_tick + 15000
 
-    # Filter data within the fixed range
     df_focus = df[(df['tickIdx'] >= tick_min) & (df['tickIdx'] <= tick_max)]
 
     if not df_focus.empty:
         plt.figure(figsize=(14, 7))
         
-        # Calculate dynamic bar width based on tick range and number of ticks
         num_ticks = len(df_focus)
         if num_ticks > 0:
-            bar_width = (tick_max - tick_min) / num_ticks * 0.9  # 90% of the spacing
+            bar_width = (tick_max - tick_min) / num_ticks * 0.9
         else:
             bar_width = 1
         
         plt.bar(df_focus['tickIdx'], df_focus['cumulative_liquidity'], width=bar_width, color='skyblue', align='center')
         plt.ylim(bottom=0, top=max_liquidity)
 
-        if tick_min <= current_tick <= tick_max:
-            plt.axvline(x=current_tick, color='red', linestyle='--', linewidth=2, label='Current Tick')
-            plt.text(current_tick, plt.ylim()[1]*0.95, 'Current Tick', color='red', rotation=90, va='top', ha='right')
-        else:
-            plt.axvline(x=current_tick, color='red', linestyle='--', linewidth=2, label='Current Tick')
+        plt.axvline(x=current_tick, color='red', linestyle='--', linewidth=2, label='Current Tick')
+        plt.text(current_tick, plt.ylim()[1]*0.95, 'Current Tick', color='red', rotation=90, va='top', ha='right')
 
         plt.title(f'Liquidity Distribution (Bar Chart)\nTimestamp: {time_str}\nPool ID: {pool_id}')
         plt.xlabel('Tick Index')
@@ -130,7 +114,7 @@ def plot_liquidity_distribution(csv_file_path, max_liquidity):
         finally:
             plt.close()
     else:
-        print("No data available in the specified range (tickIdx {tick_min} to {tick_max}) for the bar chart.")
+        print(f"No data available in the specified range (tickIdx {tick_min} to {tick_max}) for the bar chart.")
 
     # ----------------- Create Line Chart (Full Data) -----------------
     plt.figure(figsize=(14, 7))
@@ -157,7 +141,6 @@ def plot_liquidity_distribution(csv_file_path, max_liquidity):
         plt.close()
 
 if __name__ == "__main__":
-
     csv_dir = os.getenv('output_csv_path_WBTC_ETH_Pool')
     print(f"CSV Directory: {csv_dir}")
     pattern = re.compile(r'liquidity_data_(\d+)\.csv')

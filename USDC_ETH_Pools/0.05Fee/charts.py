@@ -116,7 +116,7 @@ def plot_liquidity_distribution(csv_file_path, max_liquidity, central_tick=None)
             bar_width = 1
         
         plt.bar(df_focus['tickIdx'], df_focus['cumulative_liquidity'], width=bar_width, color='skyblue', align='center')
-        plt.ylim(bottom=0, top=1e18) # can be adjusted to max_liquidity
+        plt.ylim(bottom=0, top=1e19) # can be adjusted to max_liquidity
 
         plt.axvline(x=current_tick, color='red', linestyle='--', linewidth=2, label='Current Tick')
         plt.text(current_tick, plt.ylim()[1]*0.95, 'Current Tick', color='red', rotation=90, va='top', ha='right')
@@ -146,7 +146,7 @@ def plot_liquidity_distribution(csv_file_path, max_liquidity, central_tick=None)
     # ----------------- Create Line Chart (Full Data) -----------------
     plt.figure(figsize=(14, 7))
     plt.plot(tickIdx, cumulative_liquidity, color='blue', linewidth=1, label='Cumulative Liquidity')
-    plt.ylim(bottom=0, top=1e18) # can be adjusted to max_liquidity
+    plt.ylim(bottom=0, top=1e19) # can be adjusted to max_liquidity
 
     plt.axvline(x=current_tick, color='red', linestyle='--', linewidth=2, label='Current Tick')
     plt.text(current_tick, plt.ylim()[1]*0.95, 'Current Tick', color='red', rotation=90, va='top', ha='right')

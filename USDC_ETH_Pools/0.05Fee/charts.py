@@ -219,7 +219,7 @@ if __name__ == "__main__":
     while p1 < len(pool_csv_files) and p2 < len(cex_list):
         pool_ts, _ = pool_csv_files[p1]
         cex_ts, cex_tick = cex_list[p2]
-        if abs(pool_ts - cex_ts) <= 600:  # Within 10 minutes
+        if abs(pool_ts - cex_ts) <= 60:  # Within 1 minute
             pool_matches[pool_ts] = cex_tick
             p1 += 1
             p2 += 1

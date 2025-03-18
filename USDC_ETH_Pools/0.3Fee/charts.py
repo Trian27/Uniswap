@@ -40,6 +40,9 @@ def get_max_liquidity(pool_csv_files):
     return max_liquidity
 
 def plot_liquidity_distribution(csv_file_path, max_liquidity, central_tick=None):
+
+    max_liquidity = 1e18 # for comparison with 0.05Fee pool
+
     output_charts_path = os.getenv('output_charts_path_USDC_ETH_0.3_Pool')
 
     if not output_charts_path:
@@ -216,7 +219,7 @@ if __name__ == "__main__":
     while p1 < len(pool_csv_files) and p2 < len(cex_list):
         pool_ts, _ = pool_csv_files[p1]
         cex_ts, cex_tick = cex_list[p2]
-        if abs(pool_ts - cex_ts) <= 600:  # Within 10 minutes
+        if abs(pool_ts - cex_ts) <= 60:  # Within 1 minute
             pool_matches[pool_ts] = cex_tick
             p1 += 1
             p2 += 1
